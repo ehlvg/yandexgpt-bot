@@ -56,7 +56,7 @@ YANDEXGPT_MODEL = "yandexgpt"
 MAX_HISTORY_TURNS = 10
 GPT_TEMPERATURE = 0.7
 MAX_QUESTION_LEN = 4000
-DAILY_LIMIT = 15  # per chat
+DAILY_LIMIT = 1  # per chat
 
 DEFAULT_SYSTEM_PROMPT = """
 Instructions for Assistant Persona:
@@ -97,6 +97,34 @@ def _load_unlimited_ids() -> Set[int]:
     return ids
 
 UNLIMITED_IDS = _load_unlimited_ids()
+
+# State persistence to JSON
+import json
+STATE_FILE = Path("state.json")
+
+def _load_state() -> None:
+    if not STATE_FILE.exists():
+        return
+    data = json.loads(STATE_FILE.read_text())
+    for k, v in data.get("prompts", {}).items():
+        PROMPTS[int(k)] = v
+    for k, v in data.get("daily_usage", {}).items():
+        d = _dt.date.fromisoformat(v[0])
+        DAILY_USAGE[int(k)] = (d, v[1])
+    for k, v in data.get("histories", {}).items():
+        HISTORIES[int(k)] = v
+
+
+def _save_state() -> None:
+    data = {
+        "prompts": {str(k): v for k, v in PROMPTS.items()},
+        "daily_usage": {str(k): [d.isoformat(), c] for k, (d, c) in DAILY_USAGE.items()},
+        "histories": {str(k): v for k, v in HISTORIES.items()},
+    }
+    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+# load persisted state
+_load_state()
 
 # ----------------------------------------------------------------------------
 # Yandex Cloud SDK client
@@ -209,6 +237,8 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         typing_task.cancel()
 
     history.append({"role": "assistant", "text": answer})
+    # save updated usage and history
+    _save_state()
 
     # We do NOT set parse_mode to avoid unintended HTML/Markdown rendering.
     await update.effective_message.reply_text(answer, reply_to_message_id=update.message.message_id, parse_mode=None)
@@ -216,6 +246,10 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def setprompt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+    # restrict setting prompts to admin chats only
+    if chat_id not in UNLIMITED_IDS:
+        await update.effective_message.reply_text("🚫 Permission denied. Only admins can set system prompt.")
+        return
     new_prompt = " ".join(context.args).strip()
     if not new_prompt:
         await update.effective_message.reply_text("Usage: /setprompt <system prompt text>")
@@ -223,6 +257,7 @@ async def setprompt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     PROMPTS[chat_id] = new_prompt
     HISTORIES[chat_id] = [{"role": "system", "text": new_prompt}]
+    _save_state()
     await update.effective_message.reply_text("✅ System prompt updated and context reset.")
 
 
@@ -231,6 +266,7 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     PROMPTS.pop(chat_id, None)
     HISTORIES.pop(chat_id, None)
     DAILY_USAGE.pop(chat_id, None)
+    _save_state()
     await update.effective_message.reply_text("🗑️ Context cleared. Using default prompt again.")
 
 
