@@ -1,0 +1,18 @@
+version: "3.8"
+services:
+  yandexgpt-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yandexgpt-bot
+    working_dir: /app
+    command: python bot.py
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      YC_FOLDER_ID: ${YC_FOLDER_ID}
+      YC_API_KEY: ${YC_API_KEY}
+      UNLIMITED_CHAT_IDS_FILE: unlimited_chats.txt
+    volumes:
+      - ./state.json:/app/state.json
+      - ./unlimited_chats.txt:/app/unlimited_chats.txt
+    restart: unless-stopped
