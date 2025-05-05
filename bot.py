@@ -49,11 +49,13 @@ from yandex_cloud_ml_sdk import YCloudML
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YC_FOLDER_ID = os.getenv("YC_FOLDER_ID")
 YC_API_KEY = os.getenv("YC_API_KEY")
-UNLIMITED_IDS_PATH = Path(os.getenv("UNLIMITED_CHAT_IDS_FILE", "unlimited_chats.txt"))
+DATA_DIR = os.getenv("DATA_DIR", ".")
+UNLIMITED_IDS_PATH = Path(DATA_DIR) / os.getenv("UNLIMITED_CHAT_IDS_FILE", "unlimited_chats.txt")
 
 if not (BOT_TOKEN and YC_FOLDER_ID and YC_API_KEY):
     raise RuntimeError("Environment variables TELEGRAM_BOT_TOKEN, YC_FOLDER_ID and YC_API_KEY must be set.")
 
+STATE_FILE = Path(DATA_DIR) / os.getenv("STATE_FILE", "state.json")
 YANDEXGPT_MODEL = "yandexgpt"
 MAX_HISTORY_TURNS = 10
 GPT_TEMPERATURE = 0.7
