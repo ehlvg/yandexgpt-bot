@@ -17,5 +17,8 @@ RUN if [ ! -f state.json ]; then echo "{}" > state.json; fi
 ENV UNLIMITED_CHAT_IDS_FILE=unlimited_chats.txt \
     STATE_FILE=state.json
 
+# Указываем порт (требование платформы)
+EXPOSE 8080
+
 # Команда запуска бота
 CMD ["python", "bot.py"]
