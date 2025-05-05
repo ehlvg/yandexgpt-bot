@@ -4,11 +4,14 @@ FROM python:3.12-slim
 # Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем файлы проекта
-COPY bot.py unlimited_chats.txt state.json ./
+# Копируем файлы проекта (кроме state.json)
+COPY bot.py unlimited_chats.txt ./
 
 # Устанавливаем зависимости
 RUN pip install --no-cache-dir python-telegram-bot>=22 yandex-cloud-ml-sdk>=1 python-dotenv
+
+# Создаем пустой state.json, если он не будет скопирован
+RUN if [ ! -f state.json ]; then echo "{}" > state.json; fi
 
 # Опционально указываем переменные окружения по умолчанию
 ENV UNLIMITED_CHAT_IDS_FILE=unlimited_chats.txt \
