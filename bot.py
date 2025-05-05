@@ -96,8 +96,11 @@ def _load_unlimited_ids() -> Set[int]:
     ids: Set[int] = set()
     for line in UNLIMITED_IDS_PATH.read_text().splitlines():
         line = line.strip()
-        if line.isdigit():
+        # Try converting to int, handle potential errors and negative numbers
+        try:
             ids.add(int(line))
+        except ValueError:
+            logging.warning(f"Skipping invalid line in unlimited_chats.txt: {line}")
     return ids
 
 UNLIMITED_IDS = _load_unlimited_ids()
