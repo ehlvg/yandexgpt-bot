@@ -1,39 +1,44 @@
 """
-Telegram bot powered by YandexGPT 5 Pro.
+Telegram bot powered by YandexGPT 5 Pro with daily rate limiting and security hardening.
 
 Key features
 ------------
-* /ask <question> – asynchronously gets an answer from YandexGPT and replies in the chat.
-  * Works in private chats and groups (command variants like /ask@YourBotName are supported).
-  * Keeps short conversation context per‑chat (system prompt + last N turns).
-* /setprompt <prompt text> – sets/updates the system prompt for the current chat.
-* /reset – clears the prompt and dialogue history for the current chat.
+* /ask <question> – get an answer from YandexGPT (15 requests per chat per day by default).
+* /setprompt <prompt> – set a custom system prompt for the current chat.
+* /reset – clear dialogue history.
+* /start – introduction/help.
+* Unlimited usage for chat IDs listed in <code>unlimited_chats.txt</code> (one ID per line).
+
+Security & resiliency
+~~~~~~~~~~~~~~~~~~~~~
+* Sanitises user input (length ≤ 4000 chars) and escapes assistant replies (no HTML/Markdown parsing).
+* Per‑chat history stored in memory only (use Redis/DB for production to avoid DoS).
+* SDK calls executed off‑thread to keep the event‑loop responsive.
 
 Requirements
 ~~~~~~~~~~~~
-python-telegram-bot >= 22.0  (PTB v20+ syntax)
-yandex-cloud-ml-sdk >= 1.0
-python-dotenv (optional) – for loading .env files.
+python‑telegram‑bot >= 22 • yandex‑cloud‑ml‑sdk >= 1 • python‑dotenv (optional)
 
-Before running, set the following environment variables (or hard‑code them if you must):
-  TELEGRAM_BOT_TOKEN – your Telegram Bot HTTP‑API token
-  YC_FOLDER_ID        – Yandex Cloud catalog (folder) id
-  YC_API_KEY          – IAM‑token or API key with access to YandexGPT 5 Pro
+Environment variables
+~~~~~~~~~~~~~~~~~~~~~
+  TELEGRAM_BOT_TOKEN – Telegram bot token
+  YC_FOLDER_ID        – Yandex Cloud folder ID
+  YC_API_KEY          – API key / IAM token
+  UNLIMITED_CHAT_IDS_FILE (optional) – path to whitelist file (default: unlimited_chats.txt)
 
 Run:  python yandex_gpt_bot.py
 """
 from __future__ import annotations
 
 import asyncio
+import datetime as _dt
 import logging
 import os
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Dict, List, Set, Tuple
 
 from telegram import Update, constants
-from telegram.ext import (
-    Application, CommandHandler, ContextTypes, Defaults,
-)
-
+from telegram.ext import Application, CommandHandler, ContextTypes, Defaults
 from yandex_cloud_ml_sdk import YCloudML
 
 # ----------------------------------------------------------------------------
@@ -42,34 +47,46 @@ from yandex_cloud_ml_sdk import YCloudML
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YC_FOLDER_ID = os.getenv("YC_FOLDER_ID")
 YC_API_KEY = os.getenv("YC_API_KEY")
+UNLIMITED_IDS_PATH = Path(os.getenv("UNLIMITED_CHAT_IDS_FILE", "unlimited_chats.txt"))
 
 if not (BOT_TOKEN and YC_FOLDER_ID and YC_API_KEY):
-    raise RuntimeError(
-        "Environment variables TELEGRAM_BOT_TOKEN, YC_FOLDER_ID and YC_API_KEY "
-        "must be set before launching the bot."
-    )
+    raise RuntimeError("Environment variables TELEGRAM_BOT_TOKEN, YC_FOLDER_ID and YC_API_KEY must be set.")
 
-# Model name for YandexGPT 5 Pro
 YANDEXGPT_MODEL = "yandexgpt"
-
-# Limits
-MAX_HISTORY_TURNS = 10  # user/assistant pairs kept in context (plus system prompt)
+MAX_HISTORY_TURNS = 10
 GPT_TEMPERATURE = 0.7
+MAX_QUESTION_LEN = 4000
+DAILY_LIMIT = 15  # per chat
 
-# Defaults
-DEFAULT_SYSTEM_PROMPT = (
-    "You are YandexGPT 5 Pro, a helpful assistant that answers concisely and accurately."
-)
+DEFAULT_SYSTEM_PROMPT = "You are YandexGPT 5 Pro, a helpful assistant that answers concisely and accurately."
 
 # ----------------------------------------------------------------------------
-# In‑memory chat storage  (use persistent DB/Redis for production)
+# Runtime stores (in‑memory)
 # ----------------------------------------------------------------------------
 ChatContext = List[Dict[str, str]]
 PROMPTS: Dict[int, str] = {}
 HISTORIES: Dict[int, ChatContext] = {}
+DAILY_USAGE: Dict[int, Tuple[_dt.date, int]] = {}
+UNLIMITED_IDS: Set[int] = set()
 
 # ----------------------------------------------------------------------------
-# Yandex Cloud SDK client (shared, thread‑safe)
+# Load unlimited chat IDs
+# ----------------------------------------------------------------------------
+
+def _load_unlimited_ids() -> Set[int]:
+    if not UNLIMITED_IDS_PATH.exists():
+        return set()
+    ids: Set[int] = set()
+    for line in UNLIMITED_IDS_PATH.read_text().splitlines():
+        line = line.strip()
+        if line.isdigit():
+            ids.add(int(line))
+    return ids
+
+UNLIMITED_IDS = _load_unlimited_ids()
+
+# ----------------------------------------------------------------------------
+# Yandex Cloud SDK client
 # ----------------------------------------------------------------------------
 SDK = YCloudML(folder_id=YC_FOLDER_ID, auth=YC_API_KEY)
 
@@ -79,21 +96,39 @@ SDK = YCloudML(folder_id=YC_FOLDER_ID, auth=YC_API_KEY)
 
 def _ensure_context(chat_id: int) -> ChatContext:
     if chat_id not in HISTORIES:
-        system_prompt = PROMPTS.get(chat_id, DEFAULT_SYSTEM_PROMPT)
-        HISTORIES[chat_id] = [{"role": "system", "text": system_prompt}]
+        prompt = PROMPTS.get(chat_id, DEFAULT_SYSTEM_PROMPT)
+        HISTORIES[chat_id] = [{"role": "system", "text": prompt}]
     return HISTORIES[chat_id]
 
 
 def _truncate_history(history: ChatContext) -> None:
-    excess = len(history) - (1 + 2 * MAX_HISTORY_TURNS)
-    if excess > 0:
-        del history[1:1 + excess]
+    extra = len(history) - (1 + 2 * MAX_HISTORY_TURNS)
+    if extra > 0:
+        del history[1:1 + extra]
+
+
+def _is_unlimited(chat_id: int) -> bool:
+    return chat_id in UNLIMITED_IDS
+
+
+def _check_and_increment_usage(chat_id: int) -> bool:
+    """Return True if under limit (and increment), False if limit exceeded."""
+    if _is_unlimited(chat_id):
+        return True
+    today = _dt.date.today()
+    last_date, count = DAILY_USAGE.get(chat_id, (today, 0))
+    if last_date != today:
+        count = 0  # reset daily counter
+    if count >= DAILY_LIMIT:
+        return False
+    DAILY_USAGE[chat_id] = (today, count + 1)
+    return True
 
 
 async def _generate_reply(history: ChatContext) -> str:
     loop = asyncio.get_event_loop()
 
-    def _call_sdk() -> str:
+    def _call() -> str:
         result = (
             SDK.models.completions(YANDEXGPT_MODEL)
             .configure(temperature=GPT_TEMPERATURE)
@@ -101,8 +136,7 @@ async def _generate_reply(history: ChatContext) -> str:
         )
         return result[0].text if result else "(empty response)"
 
-    return await loop.run_in_executor(None, _call_sdk)
-
+    return await loop.run_in_executor(None, _call)
 
 # ----------------------------------------------------------------------------
 # Command handlers
@@ -110,38 +144,48 @@ async def _generate_reply(history: ChatContext) -> str:
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     username = context.bot.username or "the bot"
-
     text = (
-        "👋 <b>Hello!</b> I am an assistant powered by <b>YandexGPT 5 Pro</b>.\n\n"
-        "<b>What I can do</b>:\n"
-        "• <code>/ask &lt;question&gt;</code> — I will answer your question.\n"
-        "• <code>/setprompt &lt;text&gt;</code> — I will set a system prompt for this chat.\n"
-        "• <code>/reset</code> — I will clear the history and start fresh.\n\n"
-        "Add me to a group and use the command <code>/ask@{username}</code>,\n"
-        "so I respond only when needed."
-    ).format(username=username)
+        "👋 <b>Привет!</b> Я помощник на базе <b>YandexGPT 5 Pro</b>.\n\n"
+        "<b>Что я умею</b>:\n"
+        "• <code>/ask &lt;вопрос&gt;</code> — отвечу (до 15 запросов/день на чат).\n"
+        "• <code>/setprompt &lt;текст&gt;</code> — задам системный промпт.\n"
+        "• <code>/reset</code> — очищу историю.\n\n"
+        "Чаты из whitelist (<code>{path}</code>) не имеют лимитов.\n"
+        "В группах используйте <code>/ask@{username}</code>."
+    ).format(path=UNLIMITED_IDS_PATH.name, username=username)
 
     await update.effective_message.reply_text(
-        text, parse_mode=constants.ParseMode.HTML, disable_web_page_preview=True
+        text,
+        parse_mode=constants.ParseMode.HTML,
+        disable_web_page_preview=True,
     )
 
 
 async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
+
+    if not _check_and_increment_usage(chat_id):
+        await update.effective_message.reply_text("🚫 Лимит 15 запросов на сегодня исчерпан. Попробуйте завтра.")
+        return
+
     question = " ".join(context.args).strip()
     if not question and update.message.reply_to_message:
         question = update.message.reply_to_message.text or ""
+
     if not question:
         await update.effective_message.reply_text("Usage: /ask <your question>")
+        return
+
+    if len(question) > MAX_QUESTION_LEN:
+        await update.effective_message.reply_text("⚠️ Слишком длинный запрос (макс 4000 символов).")
         return
 
     history = _ensure_context(chat_id)
     history.append({"role": "user", "text": question})
     _truncate_history(history)
 
-    typing = context.application.create_task(
-        update.effective_chat.send_chat_action("typing")
-    )
+    typing_task = context.application.create_task(update.effective_chat.send_chat_action("typing"))
+
     try:
         answer = await _generate_reply(history)
     except Exception as exc:
@@ -149,13 +193,12 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(f"⚠️ Error: {exc}")
         return
     finally:
-        typing.cancel()
+        typing_task.cancel()
 
     history.append({"role": "assistant", "text": answer})
 
-    await update.effective_message.reply_text(
-        answer, reply_to_message_id=update.message.message_id
-    )
+    # We do NOT set parse_mode to avoid unintended HTML/Markdown rendering.
+    await update.effective_message.reply_text(answer, reply_to_message_id=update.message.message_id, parse_mode=None)
 
 
 async def setprompt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -174,24 +217,27 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     PROMPTS.pop(chat_id, None)
     HISTORIES.pop(chat_id, None)
+    DAILY_USAGE.pop(chat_id, None)
     await update.effective_message.reply_text("🗑️ Context cleared. Using default prompt again.")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
 
-
 # ----------------------------------------------------------------------------
-# Main entry point
+# Main
 # ----------------------------------------------------------------------------
 
 def main() -> None:
-    logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        level=logging.INFO,
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    app = Application.builder().token(BOT_TOKEN).defaults(Defaults(parse_mode="HTML")).build()
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        # Disable global parse_mode to avoid unintended HTML in LLM replies
+        .defaults(Defaults())
+        .build()
+    )
 
     app.add_handler(CommandHandler(["start", "help"], start_cmd))
     app.add_handler(CommandHandler("ask", ask_cmd))
