@@ -4,6 +4,7 @@ Telegram bot powered by YandexGPT 5 Pro with daily rate limiting and security 
 Key features
 ------------
 * /ask <question> – get an answer from YandexGPT (15 requests per chat per day by default).
+* /image <description> – generate an image from a description using YandexART.
 * /setprompt <prompt> – set a custom system prompt for the current chat.
 * /reset – clear dialogue history.
 * /start – introduction/help.
@@ -36,6 +37,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+import io
 
 from telegram import Update, constants
 from telegram.ext import Application, CommandHandler, ContextTypes, Defaults
@@ -274,6 +276,30 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
 
+
+async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    description = " ".join(context.args).strip()
+    if not description:
+        await update.effective_message.reply_text("Usage: /image <description>")
+        return
+    typing_task = context.application.create_task(update.effective_chat.send_chat_action("upload_photo"))
+    try:
+        loop = asyncio.get_event_loop()
+        def _generate_image() -> bytes:
+            model = SDK.models.image_generation("yandex-art")
+            model = model.configure(width_ratio=1, height_ratio=1)
+            operation = model.run_deferred(description)
+            result = operation.wait()
+            return result.image_bytes
+        image_bytes = await loop.run_in_executor(None, _generate_image)
+    except Exception as exc:
+        logging.exception("YandexART request failed")
+        await update.effective_message.reply_text(f"⚠️ Error generating image: {exc}")
+        return
+    finally:
+        typing_task.cancel()
+    await update.effective_message.reply_photo(photo=io.BytesIO(image_bytes))
+
 # ----------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------
@@ -293,6 +319,7 @@ def main() -> None:
     app.add_handler(CommandHandler("ask", ask_cmd))
     app.add_handler(CommandHandler("setprompt", setprompt_cmd))
     app.add_handler(CommandHandler("reset", reset_cmd))
+    app.add_handler(CommandHandler("image", image_cmd))
 
     app.add_error_handler(error_handler)
 
