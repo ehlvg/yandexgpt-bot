@@ -56,7 +56,7 @@ YANDEXGPT_MODEL = "yandexgpt"
 MAX_HISTORY_TURNS = 10
 GPT_TEMPERATURE = 0.7
 MAX_QUESTION_LEN = 4000
-DAILY_LIMIT = 1  # per chat
+DAILY_LIMIT = 15  # per chat
 
 DEFAULT_SYSTEM_PROMPT = """
 Instructions for Assistant Persona:
@@ -265,7 +265,8 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     PROMPTS.pop(chat_id, None)
     HISTORIES.pop(chat_id, None)
-    DAILY_USAGE.pop(chat_id, None)
+    # Do not clear DAILY_USAGE here to preserve daily limits
+    # DAILY_USAGE.pop(chat_id, None)
     _save_state()
     await update.effective_message.reply_text("🗑️ Context cleared. Using default prompt again.")
 
