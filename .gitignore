@@ -1,1 +1,12 @@
 state.json
+__pycache__/__init__.cpython-311.pyc
+__pycache__/admin_panel.cpython-311.pyc
+__pycache__/bot.cpython-311.pyc
+__pycache__/config.cpython-311.pyc
+__pycache__/db.cpython-311.pyc
+__pycache__/handlers.cpython-311.pyc
+__pycache__/init_db.cpython-311.pyc
+__pycache__/migrate_to_db.cpython-311.pyc
+__pycache__/state.cpython-311.pyc
+__pycache__/translations.cpython-311.pyc
+__pycache__/yaclient.cpython-311.pyc
