@@ -212,6 +212,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "👋 <b>Hello!</b> I am an assistant powered by <b>YandexGPT 5 Pro</b>.\n\n"
         "<b>What I can do</b>:\n"
         "• <code>/ask &lt;question&gt;</code> — I will answer (up to 15 requests/day per chat).\n"
+        "• <code>/image &lt;description&gt;</code> — I will generate an image from a description (up to 5 requests/day per chat).\n"
         "• <code>/setprompt &lt;text&gt;</code> — I will set a system prompt.\n"
         "• <code>/reset</code> — I will clear the history.\n\n"
         "Chats from the whitelist (<code>{path}</code>) have no limits.\n"
