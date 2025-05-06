@@ -61,6 +61,7 @@ MAX_HISTORY_TURNS = 10
 GPT_TEMPERATURE = 0.7
 MAX_QUESTION_LEN = 4000
 DAILY_LIMIT = 15  # per chat
+IMAGE_GENERATION_LIMIT = 5  # per chat
 
 DEFAULT_SYSTEM_PROMPT = """
 Instructions for Assistant Persona:
@@ -84,6 +85,7 @@ ChatContext = List[Dict[str, str]]
 PROMPTS: Dict[int, str] = {}
 HISTORIES: Dict[int, ChatContext] = {}
 DAILY_USAGE: Dict[int, Tuple[_dt.date, int]] = {}
+DAILY_IMAGE_USAGE: Dict[int, Tuple[_dt.date, int]] = {}
 UNLIMITED_IDS: Set[int] = set()
 
 # ----------------------------------------------------------------------------
@@ -118,14 +120,16 @@ def _load_state() -> None:
     for k, v in data.get("daily_usage", {}).items():
         d = _dt.date.fromisoformat(v[0])
         DAILY_USAGE[int(k)] = (d, v[1])
-    for k, v in data.get("histories", {}).items():
-        HISTORIES[int(k)] = v
+    for k, v in data.get("image_usage", {}).items():
+        d = _dt.date.fromisoformat(v[0])
+        DAILY_IMAGE_USAGE[int(k)] = (d, v[1])
 
 
 def _save_state() -> None:
     data = {
         "prompts": {str(k): v for k, v in PROMPTS.items()},
         "daily_usage": {str(k): [d.isoformat(), c] for k, (d, c) in DAILY_USAGE.items()},
+        "image_usage": {str(k): [d.isoformat(), c] for k, (d, c) in DAILY_IMAGE_USAGE.items()},
         "histories": {str(k): v for k, v in HISTORIES.items()},
     }
     STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
@@ -172,6 +176,18 @@ def _check_and_increment_usage(chat_id: int) -> bool:
     DAILY_USAGE[chat_id] = (today, count + 1)
     return True
 
+def _check_and_increment_image_usage(chat_id: int) -> bool:
+    """Return True if under image limit (and increment), False if limit exceeded."""
+    if _is_unlimited(chat_id):
+        return True
+    today = _dt.date.today()
+    last_date, count = DAILY_IMAGE_USAGE.get(chat_id, (today, 0))
+    if last_date != today:
+        count = 0
+    if count >= IMAGE_GENERATION_LIMIT:
+        return False
+    DAILY_IMAGE_USAGE[chat_id] = (today, count + 1)
+    return True
 
 async def _generate_reply(history: ChatContext) -> str:
     loop = asyncio.get_event_loop()
@@ -287,6 +303,11 @@ async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not description:
         await update.effective_message.reply_text("Usage: /image <description>")
         return
+    chat_id = update.effective_chat.id
+    if not _check_and_increment_image_usage(chat_id):
+        await update.effective_message.reply_text("🚫 The daily image generation limit of 5 requests has been reached. Please try again tomorrow.")
+        return
+
     typing_task = context.application.create_task(update.effective_chat.send_chat_action("upload_photo"))
     try:
         loop = asyncio.get_event_loop()
