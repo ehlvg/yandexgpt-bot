@@ -21,4 +21,4 @@ ENV UNLIMITED_CHAT_IDS_FILE=unlimited_chats.txt \
 EXPOSE 8080
 
 # Команда запуска бота
-CMD ["python", "bot.py"]
+CMD ["python", "-m", "yandexgpt_bot.run_bot"]
