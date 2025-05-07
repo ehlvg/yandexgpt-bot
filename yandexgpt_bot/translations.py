@@ -1,12 +1,13 @@
 """
-Модуль с переводами для интерфейса бота YandexGPT.
+Translation module for the YandexGPT bot interface.
+Provides multilingual text for bot messages.
 """
-from .config import LANGUAGE, CONFIG_PATH
+from .config import LANGUAGE
 import yaml
 
-# Словарь переводов
+# Translation dictionary
 TRANSLATIONS = {
-    # Административная панель
+    # Admin panel
     "admin_panel_title": {
         "english": "Admin Panel - YandexGPT",
         "russian": "Панель администратора - YandexGPT"
@@ -48,7 +49,7 @@ TRANSLATIONS = {
         "russian": "⛔ У вас нет прав для доступа к панели администратора."
     },
 
-    # Языковые настройки
+    # Language settings
     "language_title": {
         "english": "🌐 Language Settings",
         "russian": "🌐 Настройки языка"
@@ -70,7 +71,7 @@ TRANSLATIONS = {
         "russian": "✅ Язык изменен на Русский."
     },
 
-    # Добавление пользователя
+    # Add user
     "add_user_title": {
         "english": "➕ Add User with Unlimited Access",
         "russian": "➕ Добавление пользователя с безлимитом"
@@ -116,7 +117,7 @@ TRANSLATIONS = {
         "russian": "⚠️ Ошибка при добавлении пользователя: {error}"
     },
 
-    # Удаление пользователя
+    # Remove user
     "remove_user_title": {
         "english": "➖ Remove User from Unlimited Access",
         "russian": "➖ Удаление пользователя с безлимитом"
@@ -142,7 +143,7 @@ TRANSLATIONS = {
         "russian": "⚠️ Ошибка при удалении пользователя: {error}"
     },
 
-    # Список пользователей с безлимитом
+    # Unlimited users list
     "unlimited_users_title": {
         "english": "👥 Users with Unlimited Access",
         "russian": "👥 Пользователи с безлимитом"
@@ -168,7 +169,7 @@ TRANSLATIONS = {
         "russian": "⚠️ Произошла ошибка: {error}"
     },
 
-    # Статистика
+    # Statistics
     "stats_title": {
         "english": "📊 Bot Statistics",
         "russian": "📊 Статистика бота"
@@ -215,7 +216,7 @@ TRANSLATIONS = {
     },
     "stats_24h_tokens": {
         "english": "• Tokens in last 24h: {count}",
-        "russian": "• Токенов за 24ч: {count}"
+        "russian": "• Токенов за 24ч"
     },
     "chart_requests_24h": {
         "english": "User activity chart (requests in last 24h)",
@@ -262,41 +263,38 @@ TRANSLATIONS = {
 
 def get_text(key, lang=None, **format_args):
     """
-    Получает перевод текста по ключу.
+    Retrieve translation text by key.
 
     Args:
-        key (str): Ключ перевода.
-        lang (str, optional): Язык перевода. Если None, берётся из конфигурации.
-        **format_args: Аргументы для форматирования текста.
+        key (str): Translation key.
+        lang (str, optional): Language code. If None, uses default from config.
+        **format_args: Arguments for string formatting.
 
     Returns:
-        str: Переведённый текст.
+        str: Translated text or key if not found.
     """
     if lang is None:
         lang = LANGUAGE
 
-    # Если язык не поддерживается, используем английский
+    # Fallback to English if unsupported language
     if lang not in ["english", "russian"]:
         lang = "english"
 
-    # Получаем перевод по ключу
+    # Attempt to get translation
     translation = TRANSLATIONS.get(key, {}).get(lang)
 
-    # Если перевод не найден, пробуем получить английский
+    # Fallback to English or key
     if translation is None:
-        translation = TRANSLATIONS.get(key, {}).get("english")
+        translation = TRANSLATIONS.get(key, {}).get("english") or key
 
-    # Если английский перевод не найден, возвращаем ключ
-    if translation is None:
-        return key
+    return translation.format(**format_args) if format_args else translation
 
-    # Форматируем текст, если есть аргументы
-    if format_args:
-        translation = translation.format(**format_args)
-
-    return translation
 
 def get_current_language():
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
-    return config.get('language', 'english')
+    """
+    Load current interface language from config file.
+
+    Returns:
+        str: Current language code.
+    """
+    return LANGUAGE

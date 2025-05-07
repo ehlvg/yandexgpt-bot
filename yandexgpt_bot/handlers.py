@@ -11,10 +11,16 @@ from .config import UNLIMITED_IDS_PATH, MAX_QUESTION_LEN, USE_DATABASE, ADMIN_CH
 from .yaclient import generate_reply, generate_image
 from .db import update_chat_user_info, Session, add_usage_record, set_system_prompt
 
-# Импортируем обработчик сообщений админки
+# Import admin message handler
 from .admin_panel import admin_message_handler
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Restrict access to whitelist
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        await update.effective_message.reply_text("🚫 Access denied. You are not whitelisted.")
+        return
+
     username = context.bot.username or "the bot"
     text = (
         "👋 <b>Hello!</b> I am an assistant powered by <b>YandexGPT 5 Pro</b>.\n\n"
@@ -34,6 +40,12 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Restrict access to whitelist
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        await update.effective_message.reply_text("🚫 Access denied. You are not whitelisted.")
+        return
+
     chat_id = update.effective_chat.id
     if USE_DATABASE:
         session = Session()
@@ -82,11 +94,17 @@ async def ask_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(answer, reply_to_message_id=update.message.message_id, parse_mode=None)
 
 async def setprompt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик команды /setprompt для установки системного промпта"""
+    """Handler for /setprompt command to set system prompt"""
+    # Restrict access to whitelist
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        await update.effective_message.reply_text("🚫 Access denied. You are not whitelisted.")
+        return
+
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
 
-    # Обновляем информацию о чате в БД
+    # Update chat info in DB
     if USE_DATABASE:
         session = Session()
         chat = update.effective_chat
@@ -96,57 +114,63 @@ async def setprompt_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         update_chat_user_info(session, chat_id, username=username, first_name=first_name, title=title)
         session.close()
 
-    # Проверка прав доступа
+    # Access check
     is_unlimited = chat_id in UNLIMITED_IDS
     is_admin = user_id in ADMIN_CHAT_IDS
     if not (is_unlimited or is_admin):
-        await update.effective_message.reply_text("🚫 Доступ запрещен. Только администраторы и чаты из белого списка могут устанавливать системный промпт.")
+        await update.effective_message.reply_text("🚫 Access denied. Only administrators and whitelisted chats can set system prompt.")
         return
 
-    # Получаем текст нового промпта
+    # Get new prompt text
     new_prompt = " ".join(context.args).strip()
     if not new_prompt:
-        await update.effective_message.reply_text("Использование: /setprompt <текст системного промпта>")
+        await update.effective_message.reply_text("Usage: /setprompt <system prompt text>")
         return
 
-    # Сохраняем промпт в память для режима без БД
+    # Save prompt in memory for non-DB mode
     PROMPTS[chat_id] = new_prompt
 
     try:
         logging.info(f"Setting system prompt for chat {chat_id}")
         
-        # Сброс истории чата
+        # Reset chat history
         _reset_chat_history(chat_id)
         
-        # Обновляем или создаем новый контекст с промптом
+        # Update or create new context with prompt
         if USE_DATABASE:
-            # Импортируем внутри функции чтобы избежать циклических импортов
+            # Import inside function to avoid circular imports
             from yandexgpt_bot.db import set_system_prompt as db_set_prompt
             session = Session()
             db_set_prompt(session, chat_id, new_prompt)
             session.close()
         else:
-            # Для режима без БД
+            # For non-DB mode
             HISTORIES[chat_id] = [{"role": "system", "text": new_prompt}]
             
-        # Сохраняем состояние, если не используем БД
+        # Save state if not using DB
         _save_state()
         
-        # Пересоздаем контекст с новым промптом
+        # Recreate context with new prompt
         _ensure_context(chat_id)
         
-        # Отправляем подтверждение
-        await update.effective_message.reply_text("✅ Системный промпт обновлен и контекст сброшен.")
+        # Send confirmation
+        await update.effective_message.reply_text("✅ System prompt updated and context reset.")
         
     except Exception as e:
-        logging.error(f"Ошибка при установке системного промпта: {e}")
-        await update.effective_message.reply_text(f"⚠️ Произошла ошибка: {e}")
+        logging.error(f"Error setting system prompt: {e}")
+        await update.effective_message.reply_text(f"⚠️ Error: {e}")
 
 async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Сбрасывает историю диалога и системный промпт к значению по умолчанию"""
+    """Resets dialogue history and system prompt to default value"""
+    # Restrict access to whitelist
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        await update.effective_message.reply_text("🚫 Access denied. You are not whitelisted.")
+        return
+
     chat_id = update.effective_chat.id
     
-    # Обновляем информацию о чате в БД
+    # Update chat info in DB
     if USE_DATABASE:
         session = Session()
         chat = update.effective_chat
@@ -157,27 +181,33 @@ async def reset_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         session.close()
     
     try:
-        # Удаляем из памяти кастомный промпт
+        # Remove custom prompt from memory
         PROMPTS.pop(chat_id, None)
         
-        # Используем функцию сброса истории с поддержкой БД
+        # Use history reset function with DB support
         _reset_chat_history(chat_id)
         
-        # Принудительно создаем новый контекст с промптом по умолчанию
+        # Force create new context with default prompt
         _ensure_context(chat_id)
         
-        # Сохраняем состояние, если не используем БД
+        # Save state if not using DB
         _save_state()
         
-        await update.effective_message.reply_text("🗑️ Контекст очищен. Используется стандартный промпт.")
+        await update.effective_message.reply_text("🗑️ Context cleared. Default prompt is used.")
     except Exception as e:
-        logging.error(f"Ошибка при сбросе контекста: {e}")
-        await update.effective_message.reply_text(f"⚠️ Произошла ошибка: {e}")
+        logging.error(f"Error resetting context: {e}")
+        await update.effective_message.reply_text(f"⚠️ Error: {e}")
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.error("Exception while handling an update:", exc_info=context.error)
 
 async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Restrict access to whitelist
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        await update.effective_message.reply_text("🚫 Access denied. You are not whitelisted.")
+        return
+
     description = " ".join(context.args).strip()
     if not description:
         await update.effective_message.reply_text("Usage: /image <description>")
@@ -208,11 +238,16 @@ async def image_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_photo(photo=io.BytesIO(image_bytes))
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает обычные текстовые сообщения и контакты"""
-    # Проверяем, нужно ли обработать как админ-сообщение
+    """Handles regular text messages and contacts"""
+    # Restrict access to whitelist for all messages
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_CHAT_IDS:
+        return
+
+    # Check if it should be handled as an admin message
     if await admin_message_handler(update, context):
-        return  # Сообщение было обработано в админке
+        return  # Message was handled in admin panel
     
-    # В противном случае можно добавить другую логику обработки сообщений
-    # Например, отвечать только в ответ на ваши сообщения, без команды /ask
-    pass 
+    # Otherwise, you can add other message handling logic
+    # For example, respond only to your messages without the /ask command
+    pass

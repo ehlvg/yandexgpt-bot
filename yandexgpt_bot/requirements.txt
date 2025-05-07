@@ -4,4 +4,5 @@ PyYAML>=6.0
 SQLAlchemy>=2.0.0
 cryptography>=40.0.0
 psycopg2-binary>=2.9.5
-matplotlib>=3.0.0 
+matplotlib>=3.0.0
+python-dotenv>=1.0.0 

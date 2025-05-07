@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
 import os
 
-# Используем абсолютный импорт
+# Use absolute import
 from yandexgpt_bot import config
 
 Base = declarative_base()
@@ -46,9 +46,9 @@ class Chat(Base):
     id = Column(Integer, primary_key=True)
     chat_id = Column(BigInteger, unique=True, nullable=False, index=True)
     is_unlimited = Column(Boolean, default=False)
-    username = Column(String(128), nullable=True)  # username пользователя или None
-    first_name = Column(String(128), nullable=True)  # имя пользователя (для private)
-    title = Column(String(256), nullable=True)  # название группы/канала
+    username = Column(String(128), nullable=True)  # user username or None
+    first_name = Column(String(128), nullable=True)  # user first name (for private chats)
+    title = Column(String(256), nullable=True)  # group or channel title
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
@@ -151,9 +151,9 @@ class UsageRecord(Base):
     
     id = Column(Integer, primary_key=True)
     chat_id = Column(BigInteger, ForeignKey('chats.chat_id', ondelete='CASCADE'), index=True)
-    user_id = Column(BigInteger, nullable=True)  # ID пользователя-отправителя
-    user_username = Column(String(128), nullable=True)  # username отправителя
-    user_first_name = Column(String(128), nullable=True)  # имя отправителя
+    user_id = Column(BigInteger, nullable=True)  # ID of the user who sent the message
+    user_username = Column(String(128), nullable=True)  # username of the user who sent the message
+    user_first_name = Column(String(128), nullable=True)  # first name of the user who sent the message
     date = Column(DateTime, default=datetime.datetime.utcnow)
     count = Column(Integer, default=0)
     
@@ -355,7 +355,7 @@ def load_unlimited_ids(session: Session) -> List[int]:
 
 
 def update_chat_user_info(session: Session, chat_id: int, username=None, first_name=None, title=None):
-    """Обновляет username/first_name/title для чата, если изменились"""
+    """Update username, first_name, and title for a chat if they have changed"""
     chat = session.query(Chat).filter_by(chat_id=chat_id).first()
     if not chat:
         chat = Chat(chat_id=chat_id)
@@ -366,7 +366,7 @@ def update_chat_user_info(session: Session, chat_id: int, username=None, first_n
 
 
 def add_usage_record(session: Session, chat_id: int, user_id: int = None, user_username: str = None, user_first_name: str = None, date: datetime.datetime = None, count: int = 1):
-    """Добавляет запись об использовании с данными пользователя"""
+    """Add a usage record with optional user details"""
     if date is None:
         date = datetime.datetime.utcnow()
     usage = UsageRecord(
@@ -379,4 +379,4 @@ def add_usage_record(session: Session, chat_id: int, user_id: int = None, user_u
     )
     session.add(usage)
     session.commit()
-    return usage 
+    return usage

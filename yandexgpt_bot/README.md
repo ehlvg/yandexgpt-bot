@@ -18,43 +18,58 @@ python3 -m yandexgpt_bot.run_bot
 python3 -c "from yandexgpt_bot.bot import main; main()"
 ```
 
-## Конфигурация
+## Configuration
 
-Все параметры (токены, лимиты, system prompt и др.) теперь задаются в файле `config.yaml` в корне папки. Пример:
+All configuration is now done via **environment variables**. This is secure and works well for Docker deployments. You no longer need a config.yaml file.
 
-```yaml
-telegram_bot_token: 'YOUR_TELEGRAM_BOT_TOKEN'
-yc_folder_id: 'YOUR_YC_FOLDER_ID'
-yc_api_key: 'YOUR_YC_API_KEY'
-data_dir: '.'
-unlimited_chat_ids_file: 'unlimited_chats.txt'
-state_file: 'state.json'
-yandexgpt_model: 'yandexgpt'
-max_history_turns: 10
-gpt_temperature: 0.7
-max_question_len: 4000
-daily_limit: 15
-image_generation_limit: 5
+### Required environment variables
+- `BOT_TOKEN` – Telegram bot token
+- `YC_FOLDER_ID` – Yandex Cloud folder ID
+- `YC_API_KEY` – Yandex Cloud API key / IAM token
 
-# Настройки языка интерфейса (english или russian)
-language: 'english'
+### Optional environment variables (with defaults)
+- `DATA_DIR` – Data directory (default: `.`)
+- `UNLIMITED_CHAT_IDS_FILE` – Path to unlimited chat IDs file (default: `unlimited_chats.txt`)
+- `STATE_FILE` – Path to state file (default: `state.json`)
+- `YANDEXGPT_MODEL` – YandexGPT model name (default: `yandexgpt`)
+- `MAX_HISTORY_TURNS` – Max history turns (default: `10`)
+- `GPT_TEMPERATURE` – GPT temperature (default: `0.7`)
+- `MAX_QUESTION_LEN` – Max question length (default: `4000`)
+- `DAILY_LIMIT` – Daily request limit per chat (default: `15`)
+- `IMAGE_GENERATION_LIMIT` – Daily image generation limit per chat (default: `5`)
+- `SYSTEM_PROMPT` – System prompt for the assistant (default: "You are a helpful assistant.")
+- `LANGUAGE` – Interface language: `english` or `russian` (default: `english`)
+- `ADMIN_CHAT_IDS` – Comma-separated list of Telegram user IDs with admin privileges (e.g. `123456789,987654321`)
+- `USE_DATABASE` – Set to `true` to enable database support (default: `false`)
+- `DB_TYPE`, `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_ENCRYPTION_KEY` – Database connection settings (see below)
 
-# Администраторы бота - список ID пользователей Telegram с правами админа
-admin_chat_ids: [123456789, 987654321]
+### Database environment variables (if `USE_DATABASE=true`)
+- `DB_TYPE` – Database type (default: `postgresql`)
+- `DB_HOST` – Database host (default: `localhost`)
+- `DB_PORT` – Database port (default: `5432`)
+- `DB_USER` – Database user (default: `postgres`)
+- `DB_PASSWORD` – Database password (default: `postgres`)
+- `DB_NAME` – Database name (default: `yagptbot`)
+- `DB_ENCRYPTION_KEY` – Encryption key for sensitive data
 
-# Database configuration - optional, set use_database to false to disable
-use_database: true
-database:
-  type: 'postgresql'
-  host: 'localhost'
-  port: 5432
-  user: 'postgres'
-  password: 'postgres'
-  dbname: 'yagptbot'
-  encryption_key: 'your-secure-encryption-key-change-me'
+### Example: Running with Docker
 
-system_prompt: |
-  ...
+```sh
+docker run \
+  -e BOT_TOKEN=your-telegram-token \
+  -e YC_FOLDER_ID=your-folder-id \
+  -e YC_API_KEY=your-yandex-api-key \
+  -e ADMIN_CHAT_IDS=123456789,987654321 \
+  yourimage
+```
+
+For local development, you can create a `.env` file (not committed to git) with your variables:
+
+```
+BOT_TOKEN=your-telegram-token
+YC_FOLDER_ID=your-folder-id
+YC_API_KEY=your-yandex-api-key
+ADMIN_CHAT_IDS=123456789,987654321
 ```
 
 ## Административная панель

@@ -11,4 +11,4 @@ __pycache__/state.cpython-311.pyc
 __pycache__/translations.cpython-311.pyc
 __pycache__/yaclient.cpython-311.pyc
 yandexgpt_bot/config.yaml
-
+.env

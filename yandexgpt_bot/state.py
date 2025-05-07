@@ -1,3 +1,7 @@
+"""
+State management for chat contexts, usage tracking, and unlimited access handling.
+Supports both database and in-memory implementations.
+"""
 import datetime as _dt
 import json
 from pathlib import Path
@@ -5,7 +9,7 @@ from typing import Dict, List, Set, Tuple
 from yandexgpt_bot.config import STATE_FILE, UNLIMITED_IDS_PATH, DEFAULT_SYSTEM_PROMPT, USE_DATABASE
 import logging
 
-# Значения по умолчанию для импортируемых из db функций
+# Default placeholders for database functions when DB is disabled or uninitialized
 db_initialized = False
 Session = None
 load_unlimited_ids = None
@@ -21,12 +25,12 @@ check_and_increment_image_usage = None
 
 # Import database module if database is enabled
 if USE_DATABASE:
-    # Импортируем модуль db и инициализируем его
+    # Import the db module and initialize it
     from yandexgpt_bot import db
     db_initialized = db.init_db()
     
     if db_initialized and db.Session is not None:
-        # Присваиваем функции из db после успешной инициализации
+        # Assign functions from db after successful initialization
         Session = db.Session
         load_unlimited_ids = db.load_unlimited_ids
         set_unlimited_status = db.set_unlimited_status
@@ -39,7 +43,7 @@ if USE_DATABASE:
         check_and_increment_usage = db.check_and_increment_usage
         check_and_increment_image_usage = db.check_and_increment_image_usage
 
-# In-memory state (fallback when database is not used)
+# In-memory state fallback when database is not used
 ChatContext = List[Dict[str, str]]
 PROMPTS: Dict[int, str] = {}
 HISTORIES: Dict[int, ChatContext] = {}
@@ -120,7 +124,7 @@ def _save_state() -> None:
     STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
 def _ensure_context(chat_id: int) -> ChatContext:
-    """Создает или возвращает контекст чата (историю сообщений)"""
+    """Creates or returns the chat context (message history)"""
     # Database-based method
     if USE_DATABASE and db_initialized and Session is not None and all([
             get_or_create_chat, get_system_prompt, set_system_prompt, 
@@ -131,14 +135,14 @@ def _ensure_context(chat_id: int) -> ChatContext:
             # Get or create chat
             get_or_create_chat(db_session, chat_id)
             
-            # Если у нас есть PROMPTS для этого чата, используем его как источник правды
+            # If we have PROMPTS for this chat, use it as the source of truth
             if chat_id in PROMPTS:
                 system_prompt = PROMPTS[chat_id]
-                # Устанавливаем промпт в БД
+                # Set the prompt in the database
                 set_system_prompt(db_session, chat_id, system_prompt)
                 logging.info(f"Set system prompt from PROMPTS for chat {chat_id}")
                 
-                # Проверяем, есть ли уже системное сообщение
+                # Check if there is already a system message
                 history = get_chat_history(db_session, chat_id)
                 system_message_exists = False
                 for msg in history:
@@ -146,26 +150,26 @@ def _ensure_context(chat_id: int) -> ChatContext:
                         system_message_exists = True
                         break
                 
-                # Если нет системного сообщения, добавляем
+                # If there is no system message, add one
                 if not system_message_exists:
                     add_message(db_session, chat_id, "system", system_prompt, sequence=0)
                     logging.info(f"Added system message for chat {chat_id}")
             else:
-                # Иначе получаем промпт из БД
+                # Otherwise, get the prompt from the database
                 system_prompt = get_system_prompt(db_session, chat_id)
                 
-                # Если промпта нет в БД, устанавливаем дефолтный
+                # If there is no prompt in the database, set the default one
                 if not system_prompt:
                     system_prompt = DEFAULT_SYSTEM_PROMPT
                     set_system_prompt(db_session, chat_id, system_prompt)
-                    # Добавляем системное сообщение
+                    # Add a system message
                     add_message(db_session, chat_id, "system", system_prompt, sequence=0)
                     logging.info(f"Set default system prompt for chat {chat_id}")
                 
-                # Сохраняем промпт в память
+                # Save the prompt in memory
                 PROMPTS[chat_id] = system_prompt
             
-            # Получаем историю чата
+            # Get the chat history
             from yandexgpt_bot.config import MAX_HISTORY_TURNS
             history = get_chat_history(db_session, chat_id, limit=1 + 2 * MAX_HISTORY_TURNS)
             
@@ -286,4 +290,4 @@ def _reset_chat_history(chat_id: int) -> None:
             logging.error(f"Error resetting chat history in database: {e}")
 
 # Load state on import
-_load_state() 
+_load_state()
