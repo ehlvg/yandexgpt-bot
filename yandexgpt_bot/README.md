@@ -138,4 +138,8 @@ python3 -m yandexgpt_bot.migrate_to_db
 
 ```bash
 python3 -m pip install -r yandexgpt_bot/requirements.txt
-``` 
+```
+
+## Project Structure
+
+All source files are now inside the yandexgpt_bot package directory. 
